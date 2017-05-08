@@ -1,13 +1,25 @@
 ﻿using System;
 using Akka.Actor;
+using Akka.Persistence;
 using GameConsole.ActorModel.Messages;
 
 namespace GameConsole.ActorModel.Actors
 {
-    class PlayerActor : ReceiveActor
+    class PlayerActor : ReceivePersistentActor
     {
+
+        public override string PersistenceId
+        {
+            get
+            {
+                return _playerName;
+            }
+        }
+
         private readonly string _playerName;
-        private int _health;        
+        private int _health;
+
+        private int _eventCount = 0;     
 
         public PlayerActor(string playerName, int startingHealth)
         {
@@ -16,9 +28,12 @@ namespace GameConsole.ActorModel.Actors
 
             DisplayHelper.WriteLine($"{_playerName} created");
 
-            Receive<HitMessage>(message => HitPlayer(message));
-            Receive<DisplayStatusMessage>(message => DisplayPlayerStatus());
-            Receive<CauseErrorMessage>(message => SimulateError());
+            Command<HitMessage>(message => Persist(message, hitEvent => HitPlayer(message)));
+            Command<DisplayStatusMessage>(message => DisplayPlayerStatus());
+            Command<CauseErrorMessage>(message => SimulateError());
+
+            Recover<HitMessage>(message => _health -= message.Damage);
+            Recover<SnapshotOffer>(offer => _health = (int) offer.Snapshot);
         }
 
         private void HitPlayer(HitMessage message)
@@ -26,6 +41,16 @@ namespace GameConsole.ActorModel.Actors
             DisplayHelper.WriteLine($"{_playerName} received HitMessage");
 
             _health -= message.Damage;
+
+            ++_eventCount;
+
+            if (_eventCount == 5)
+            {
+                SaveSnapshot(this._health);
+                _eventCount = 0;
+            }
+
+            
         }
 
         private void DisplayPlayerStatus()
